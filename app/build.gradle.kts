@@ -6,7 +6,7 @@ plugins {
 
 android {
   namespace = "com.calorietrack.app"
-  compileSdk = 35
+  compileSdk = 36
   defaultConfig {
     applicationId = "com.calorietrack.app"
     minSdk = 24
@@ -82,4 +82,8 @@ dependencies {
   implementation(libs.androidx.navigation3.ui)
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+
+  // Barcode Scanner & Vision
+  implementation(libs.play.services.code.scanner)
+  implementation(libs.mlkit.barcode.scanning)
 }

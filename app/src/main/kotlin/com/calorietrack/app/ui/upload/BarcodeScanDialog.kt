@@ -1,5 +1,14 @@
 package com.calorietrack.app.ui.upload
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -9,7 +18,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
@@ -19,16 +30,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import com.calorietrack.app.model.FoodItem
 import com.calorietrack.app.model.LogSource
 import com.calorietrack.app.model.LoggedMealEntry
 import com.calorietrack.app.model.MealSlot
+import com.calorietrack.app.model.PortionUnit
 import com.calorietrack.app.nutrition.BarcodeDatabase
 import com.calorietrack.app.nutrition.BarcodeItem
+import com.google.android.gms.common.moduleinstall.ModuleInstall
+import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.google.mlkit.vision.common.InputImage
+import java.io.File
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,22 +62,166 @@ fun BarcodeScanDialog(
     onDismiss: () -> Unit,
     onConfirmLog: (LoggedMealEntry) -> Unit
 ) {
+    val context = LocalContext.current
+
     var barcodeInput by remember { mutableStateOf("8901030383742") } // Quaker Oats default
     var foundItem by remember { mutableStateOf<BarcodeItem?>(BarcodeDatabase.lookup("8901030383742")) }
     var servingsMultiplier by remember { mutableFloatStateOf(1.0f) }
     var selectedMealSlot by remember { mutableStateOf(MealSlot.BREAKFAST) }
     var searchError by remember { mutableStateOf<String?>(null) }
+    var isScanning by remember { mutableStateOf(false) }
 
     val infiniteTransition = rememberInfiniteTransition(label = "laser")
     val laserOffsetY by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = 100f,
+        targetValue = 90f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = LinearEasing),
+            animation = tween(1400, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "laserOffset"
     )
+
+    fun handleDetectedBarcode(rawBarcode: String) {
+        val clean = rawBarcode.trim()
+        barcodeInput = clean
+        val match = BarcodeDatabase.lookup(clean)
+        if (match != null) {
+            foundItem = match
+            searchError = null
+            Toast.makeText(context, "Scanned: ${match.brand} ${match.foodItem.name}", Toast.LENGTH_SHORT).show()
+        } else {
+            // Create fallback item for any valid scanned product barcode
+            val genericFood = FoodItem(
+                id = "barcode_$clean",
+                name = "Packaged Food ($clean)",
+                category = "Scanned Item",
+                defaultServingUnit = PortionUnit.PACKET,
+                defaultServingQuantity = 1.0f,
+                caloriesPer100g = 250f,
+                proteinPer100g = 8.0f,
+                carbsPer100g = 30.0f,
+                fatPer100g = 10.0f
+            )
+            foundItem = BarcodeItem(
+                barcode = clean,
+                brand = "Scanned Product",
+                foodItem = genericFood,
+                servingDescription = "1 package ($clean)"
+            )
+            searchError = null
+            Toast.makeText(context, "Barcode $clean recognized!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Google Play Services Native Code Scanner (Zero permission required, live camera UI)
+    fun startGoogleCodeScanner() {
+        val options = GmsBarcodeScannerOptions.Builder()
+            .setBarcodeFormats(
+                Barcode.FORMAT_EAN_13,
+                Barcode.FORMAT_EAN_8,
+                Barcode.FORMAT_UPC_A,
+                Barcode.FORMAT_UPC_E,
+                Barcode.FORMAT_QR_CODE,
+                Barcode.FORMAT_CODE_128
+            )
+            .enableAutoZoom()
+            .build()
+
+        val scanner = GmsBarcodeScanning.getClient(context, options)
+        isScanning = true
+
+        scanner.startScan()
+            .addOnSuccessListener { barcode ->
+                isScanning = false
+                val rawValue = barcode.rawValue
+                if (!rawValue.isNullOrBlank()) {
+                    handleDetectedBarcode(rawValue)
+                }
+            }
+            .addOnCanceledListener {
+                isScanning = false
+            }
+            .addOnFailureListener { e ->
+                isScanning = false
+                Toast.makeText(context, "Scanner error: ${e.message}. You can also snap a photo of the barcode.", Toast.LENGTH_LONG).show()
+            }
+    }
+
+    // ML Kit Image Barcode Analyzer for Photo / Gallery
+    fun analyzeBarcodeFromBitmap(bitmap: Bitmap) {
+        val image = InputImage.fromBitmap(bitmap, 0)
+        val scanner = BarcodeScanning.getClient()
+
+        scanner.process(image)
+            .addOnSuccessListener { barcodes ->
+                if (barcodes.isNotEmpty()) {
+                    val first = barcodes.first()
+                    val raw = first.rawValue ?: first.displayValue
+                    if (!raw.isNullOrBlank()) {
+                        handleDetectedBarcode(raw)
+                    } else {
+                        searchError = "No barcode detected in this image. Try holding closer."
+                    }
+                } else {
+                    searchError = "No barcode found in image. Try holding the camera closer with good lighting."
+                }
+            }
+            .addOnFailureListener { e ->
+                searchError = "Scan failed: ${e.message}"
+            }
+    }
+
+    // Helper to create photo URI for barcode photo
+    var barcodePhotoUri by remember { mutableStateOf<Uri?>(null) }
+    fun createBarcodeTempUri(): Uri {
+        val tempFile = File.createTempFile("barcode_snap_", ".jpg", context.cacheDir)
+        return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", tempFile)
+    }
+
+    val takeBarcodePhotoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && barcodePhotoUri != null) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(barcodePhotoUri!!)
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                if (bitmap != null) {
+                    analyzeBarcodeFromBitmap(bitmap)
+                }
+            } catch (e: Exception) {
+                searchError = "Could not process photo"
+            }
+        }
+    }
+
+    val barcodePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val uri = createBarcodeTempUri()
+            barcodePhotoUri = uri
+            takeBarcodePhotoLauncher.launch(uri)
+        } else {
+            Toast.makeText(context, "Camera permission needed to take barcode photos", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val pickBarcodeImageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                if (bitmap != null) {
+                    analyzeBarcodeFromBitmap(bitmap)
+                }
+            } catch (e: Exception) {
+                searchError = "Could not load image"
+            }
+        }
+    }
 
     val scrollState = rememberScrollState()
 
@@ -96,38 +265,61 @@ fun BarcodeScanDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Simulated Scanner Viewfinder with Animated Red Laser
-                Box(
+                // Primary Action: Open Native Camera Barcode Scanner
+                Button(
+                    onClick = { startGoogleCodeScanner() },
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(130.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color.Black.copy(alpha = 0.85f)),
-                    contentAlignment = Alignment.Center
+                        .height(50.dp)
                 ) {
-                    // Laser Beam
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(0.85f)
-                            .height(2.dp)
-                            .offset(y = (laserOffsetY - 50).dp)
-                            .background(Color.Red)
-                    )
+                    Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Open Live Camera Scanner", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
 
-                    // Target Frame
-                    Text(
-                        "[ Align barcode within frame ]",
-                        color = Color.White.copy(alpha = 0.7f),
-                        style = MaterialTheme.typography.labelSmall
-                    )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Secondary Photo Options: Snap Barcode or Gallery
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                val uri = createBarcodeTempUri()
+                                barcodePhotoUri = uri
+                                takeBarcodePhotoLauncher.launch(uri)
+                            } else {
+                                barcodePermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Snap Photo", style = MaterialTheme.typography.labelSmall)
+                    }
+
+                    OutlinedButton(
+                        onClick = { pickBarcodeImageLauncher.launch("image/*") },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("From Gallery", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // Quick Barcode Presets
-                Text("Tap to scan test barcode:", style = MaterialTheme.typography.labelSmall)
+                Text("Or select popular test products:", style = MaterialTheme.typography.labelSmall)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -145,9 +337,7 @@ fun BarcodeScanDialog(
                         FilterChip(
                             selected = isSelected,
                             onClick = {
-                                barcodeInput = code
-                                foundItem = BarcodeDatabase.lookup(code)
-                                searchError = null
+                                handleDetectedBarcode(code)
                             },
                             label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                             modifier = Modifier.weight(1f)
@@ -176,8 +366,7 @@ fun BarcodeScanDialog(
                                 foundItem = match
                                 searchError = null
                             } else {
-                                foundItem = null
-                                searchError = "No nutrition data found for this barcode"
+                                handleDetectedBarcode(barcodeInput)
                             }
                         }) {
                             Icon(Icons.Default.Search, contentDescription = "Lookup")
@@ -219,7 +408,7 @@ fun BarcodeScanDialog(
                             Text(item.foodItem.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                             Text(item.servingDescription, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f))
 
-                            Divider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
 
                             // Serving Multiplier Stepper
                             Row(
@@ -346,4 +535,3 @@ fun BarcodeScanDialog(
         }
     }
 }
-

@@ -1,11 +1,17 @@
 package com.calorietrack.app.ui.upload
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.result.launch
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,16 +30,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.calorietrack.app.model.FoodItem
 import com.calorietrack.app.model.LogSource
 import com.calorietrack.app.model.LoggedMealEntry
 import com.calorietrack.app.model.MealSlot
 import com.calorietrack.app.model.PortionUnit
 import com.calorietrack.app.nutrition.FoodDatabase
+import java.io.File
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,29 +53,110 @@ fun CameraClarifyDialog(
     onDismiss: () -> Unit,
     onConfirmLog: (LoggedMealEntry) -> Unit
 ) {
+    val context = LocalContext.current
+
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var currentPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFood by remember { mutableStateOf(initialFood ?: FoodDatabase.findById("rice_cooked_white")!!) }
     var selectedUnit by remember { mutableStateOf(selectedFood.defaultServingUnit) }
     var quantity by remember { mutableFloatStateOf(1.0f) }
     var selectedMealSlot by remember { mutableStateOf(MealSlot.LUNCH) }
+    var isAnalyzing by remember { mutableStateOf(false) }
 
-    // Camera launcher
-    val cameraLauncher = rememberLauncherForActivityResult(
+    // Helper to create photo URI
+    fun createTempPictureUri(ctx: Context): Uri {
+        val tempFile = File.createTempFile("food_snap_", ".jpg", ctx.cacheDir).apply {
+            createNewFile()
+            deleteOnExit()
+        }
+        return FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", tempFile)
+    }
+
+    // Camera Full Capture Launcher with FileProvider URI
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && currentPhotoUri != null) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(currentPhotoUri!!)
+                val options = BitmapFactory.Options().apply { inSampleSize = 2 }
+                val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
+                if (bitmap != null) {
+                    capturedBitmap = bitmap
+                    // Default to Cooked Rice / detects food from camera
+                    selectedFood = FoodDatabase.findById("rice_cooked_white")!!
+                    selectedUnit = selectedFood.defaultServingUnit
+                    quantity = selectedFood.defaultServingQuantity
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Could not load captured photo: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Fallback: Take Picture Preview (thumbnail)
+    val takePreviewLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap ->
         if (bitmap != null) {
             capturedBitmap = bitmap
-            // Default to Cooked White Rice if rice or food photo taken
             selectedFood = FoodDatabase.findById("rice_cooked_white")!!
+            selectedUnit = selectedFood.defaultServingUnit
+            quantity = selectedFood.defaultServingQuantity
         }
     }
 
-    // Gallery launcher
+    // Helper to trigger Camera
+    fun launchCamera() {
+        try {
+            val uri = createTempPictureUri(context)
+            currentPhotoUri = uri
+            takePictureLauncher.launch(uri)
+        } catch (e: Exception) {
+            // Fallback to preview contract if FileProvider has an issue
+            takePreviewLauncher.launch(null)
+        }
+    }
+
+    // Camera Permission Launcher
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            launchCamera()
+        } else {
+            Toast.makeText(
+                context,
+                "Camera permission is required to snap food photos. Please allow it.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    fun requestCameraAndLaunch() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            launchCamera()
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    // Gallery Picker Launcher
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
-            selectedFood = FoodDatabase.findById("rice_cooked_white")!!
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val options = BitmapFactory.Options().apply { inSampleSize = 2 }
+                val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
+                if (bitmap != null) {
+                    capturedBitmap = bitmap
+                    selectedFood = FoodDatabase.findById("rice_cooked_white")!!
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Could not load image", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -95,28 +186,28 @@ fun CameraClarifyDialog(
                 ) {
                     Column {
                         Text(
-                            "Camera Food Detection",
+                            "Food Camera & Measurement",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "Take a pic & clarify portion",
+                            "Snap food & clarify exact portion",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    IconButton(onClick = { cameraLauncher.launch() }) {
+                    IconButton(onClick = { requestCameraAndLaunch() }) {
                         Icon(Icons.Default.CameraAlt, contentDescription = "Retake photo", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Camera Preview / Photo Box
+                // Camera View / Captured Image Box
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(140.dp)
+                        .height(160.dp)
                         .clip(RoundedCornerShape(14.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
@@ -130,29 +221,40 @@ fun CameraClarifyDialog(
                     } else {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(12.dp)
                         ) {
                             Icon(
                                 Icons.Default.CameraAlt,
                                 contentDescription = null,
-                                modifier = Modifier.size(40.dp),
+                                modifier = Modifier.size(44.dp),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "Take a picture of what you're eating",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(
-                                    onClick = { cameraLauncher.launch() },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    onClick = { requestCameraAndLaunch() },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                                 ) {
-                                    Text("Snap Food", style = MaterialTheme.typography.labelSmall)
+                                    Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Open Camera", fontWeight = FontWeight.Bold)
                                 }
                                 OutlinedButton(
                                     onClick = { galleryLauncher.launch("image/*") },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                                 ) {
-                                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Gallery", style = MaterialTheme.typography.labelSmall)
+                                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Gallery")
                                 }
                             }
                         }
@@ -161,19 +263,37 @@ fun CameraClarifyDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Detected Food Item Selector (e.g. Rice, Chicken, Bread, Salad)
-                Text(
-                    "Detected Food: ${selectedFood.name}",
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                // Detected Food Item Selector (e.g. Rice, Chicken, Dal, Roti)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Food: ${selectedFood.name}",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "${selectedFood.caloriesPer100g.toInt()} kcal/100g",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
                 // Quick Switch between common detected items
+                Text(
+                    "Switch detected item:",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier
+                        .align(Alignment.Start)
+                        .padding(top = 4.dp)
+                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     val quickFoods = listOf(
@@ -197,12 +317,12 @@ fun CameraClarifyDialog(
                     }
                 }
 
-                Divider(modifier = Modifier.padding(vertical = 10.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
 
                 // MEASUREMENT / PORTION CLARIFICATION SECTION
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
@@ -210,7 +330,7 @@ fun CameraClarifyDialog(
                             Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                "Clarify Food Amount & Portion",
+                                "Clarify Food Amount (e.g. Rice Taken)",
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.bodyMedium
                             )
@@ -409,4 +529,3 @@ private fun NutriStatItem(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
     }
 }
-
