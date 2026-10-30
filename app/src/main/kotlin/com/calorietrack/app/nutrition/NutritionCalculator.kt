@@ -55,8 +55,8 @@ object NutritionCalculator {
         val fatGrams = (fatCalories / 9.0f).roundToInt()
 
         // Carbs calculation: remainder calories
-        val remainingCalories = (targetCalories - proteinCalories - fatCalories).coerceAtLeast(200.0)
-        val carbsGrams = (remainingCalories / 4.0).roundToInt()
+        val remainingCalories = (targetCalories - proteinCalories - fatCalories).coerceAtLeast(200f)
+        val carbsGrams = (remainingCalories / 4f).roundToInt()
 
         // Water intake: 35 ml per kg body weight
         val waterIntakeMl = (profile.weightKg * 35f).roundToInt().coerceAtLeast(2000)
