@@ -1,10 +1,13 @@
 package com.calorietrack.app.ui.upload
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +23,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -27,6 +32,8 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
@@ -39,7 +46,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -53,6 +62,7 @@ import com.calorietrack.app.model.PortionUnit
 import com.calorietrack.app.nutrition.FoodCandidate
 import com.calorietrack.app.nutrition.FoodDatabase
 import com.calorietrack.app.nutrition.FoodVisionClassifier
+import com.calorietrack.app.nutrition.VoiceFoodParser
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
@@ -68,6 +78,7 @@ fun CameraClarifyDialog(
     onConfirmLog: (LoggedMealEntry) -> Unit
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
 
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var currentPhotoUri by remember { mutableStateOf<Uri?>(null) }
@@ -81,8 +92,70 @@ fun CameraClarifyDialog(
     var topCandidates by remember { mutableStateOf<List<FoodCandidate>>(emptyList()) }
     var detectionMessage by remember { mutableStateOf<String?>(null) }
 
+    // Related / similar foods to the current selection
+    val relatedFoods = remember(selectedFood) {
+        FoodDatabase.getRelatedFoods(selectedFood)
+    }
+
+    // Manual typing & voice input states
+    var manualInputMode by remember { mutableStateOf<String?>(null) } // "text", "voice", or null
+    var manualTypedText by remember { mutableStateOf("") }
+    var isListeningVoice by remember { mutableStateOf(false) }
+
     // Food Search picker dialog state
     var showFoodSearchDialog by remember { mutableStateOf(false) }
+
+    // Speech Recognizer Launcher for Voice input
+    val speechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        isListeningVoice = false
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spoken.isNullOrBlank()) {
+                val parsed = VoiceFoodParser.parse(spoken).firstOrNull()
+                if (parsed != null) {
+                    selectedFood = parsed.foodItem
+                    selectedUnit = parsed.unit
+                    quantity = parsed.quantity
+                    detectionMessage = "Voice identified: ${parsed.foodItem.name} ($spoken)"
+                } else {
+                    val custom = FoodDatabase.findOrCreateFood(spoken)
+                    selectedFood = custom
+                    selectedUnit = custom.defaultServingUnit
+                    quantity = custom.defaultServingQuantity
+                    detectionMessage = "Voice identified: ${custom.name}"
+                }
+                manualInputMode = null
+            }
+        }
+    }
+
+    fun launchSpeechInput() {
+        try {
+            isListeningVoice = true
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Say the exact food name (e.g. 1 bowl of Rajma or Biryani)")
+            }
+            speechLauncher.launch(intent)
+        } catch (e: Exception) {
+            isListeningVoice = false
+            Toast.makeText(context, "Voice input not supported on this device", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun applyManualFoodName(name: String) {
+        if (name.isBlank()) return
+        val food = FoodDatabase.findOrCreateFood(name)
+        selectedFood = food
+        selectedUnit = food.defaultServingUnit
+        quantity = food.defaultServingQuantity
+        detectionMessage = "Custom meal applied: ${food.name}"
+        manualTypedText = ""
+        manualInputMode = null
+        focusManager.clearFocus()
+    }
 
     fun runFoodRecognition(bitmap: Bitmap) {
         isAnalyzing = true
@@ -105,7 +178,6 @@ fun CameraClarifyDialog(
                     isAnalyzing = false
                 }
                 .addOnFailureListener {
-                    // Fallback to central plate color classification
                     val result = FoodVisionClassifier.classifyImage(bitmap, emptyList())
                     selectedFood = result.bestMatch
                     selectedUnit = result.bestMatch.defaultServingUnit
@@ -230,13 +302,13 @@ fun CameraClarifyDialog(
                 ) {
                     Column {
                         Text(
-                            "Smart Food Recognition",
+                            "Smart Food Camera",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            "Snap food photo & clarify exact portion",
+                            "Snap food, pick matching item & clarify portion",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -256,7 +328,7 @@ fun CameraClarifyDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(180.dp)
+                        .height(170.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
@@ -300,7 +372,7 @@ fun CameraClarifyDialog(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "Snap a picture of your plate or meal",
+                                "Snap a picture of your food plate",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -347,7 +419,7 @@ fun CameraClarifyDialog(
                     }
                 }
 
-                // AI Detection Banner
+                // AI Detection Status Banner
                 if (detectionMessage != null) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Surface(
@@ -373,32 +445,41 @@ fun CameraClarifyDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // TOP IDENTIFIED CANDIDATES SECTION (Google Lens style)
-                if (topCandidates.isNotEmpty()) {
-                    Text(
-                        text = "Identified Matches (tap to switch):",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.align(Alignment.Start)
-                    )
+                // =========================================================================
+                // FEATURE 1: SIMILAR & RELATED FOOD SUGGESTIONS (Choose by yourself)
+                // =========================================================================
+                if (relatedFoods.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Related & Similar Foods (tap to choose):",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        items(topCandidates) { candidate ->
-                            val isSelected = selectedFood.id == candidate.food.id
+                        // Include active food + related similar foods
+                        val displayList = (listOf(selectedFood) + relatedFoods).distinctBy { it.id }
+                        items(displayList) { food ->
+                            val isSelected = selectedFood.id == food.id
                             FilterChip(
                                 selected = isSelected,
                                 onClick = {
-                                    selectedFood = candidate.food
-                                    selectedUnit = candidate.food.defaultServingUnit
-                                    quantity = candidate.food.defaultServingQuantity
+                                    selectedFood = food
+                                    selectedUnit = food.defaultServingUnit
+                                    quantity = food.defaultServingQuantity
                                 },
                                 label = {
                                     Text(
-                                        "${candidate.food.name} (${(candidate.confidence * 100).toInt()}%)",
+                                        food.name,
                                         fontSize = 11.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                     )
@@ -412,7 +493,91 @@ fun CameraClarifyDialog(
                     Spacer(modifier = Modifier.height(10.dp))
                 }
 
-                // Active Food Header with "Search / Change Any Food"
+                // =========================================================================
+                // FEATURE 2: NONE MATCHES? WRITE THE REAL MEAL OR GIVE VOICE INPUT
+                // =========================================================================
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "None of these match your meal?",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                FilledTonalButton(
+                                    onClick = {
+                                        manualInputMode = if (manualInputMode == "text") null else "text"
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Write", fontSize = 11.sp)
+                                }
+
+                                Button(
+                                    onClick = { launchSpeechInput() },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Speak", fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        // Expandable manual text box
+                        AnimatedVisibility(visible = manualInputMode == "text") {
+                            Column(modifier = Modifier.padding(top = 10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedTextField(
+                                        value = manualTypedText,
+                                        onValueChange = { manualTypedText = it },
+                                        label = { Text("Write your exact food / dish name") },
+                                        placeholder = { Text("e.g. Rajma Chawal, Poha, Chicken Curry") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                        keyboardActions = KeyboardActions(onDone = { applyManualFoodName(manualTypedText) })
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(
+                                        onClick = { applyManualFoodName(manualTypedText) },
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text("Set")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Active Food Header with "Search Full Database"
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -439,15 +604,15 @@ fun CameraClarifyDialog(
                     ) {
                         Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Search/Pick", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Search All", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // =========================================================
+                // =========================================================================
                 // MEASUREMENT / PORTION CLARIFICATION SECTION
-                // =========================================================
+                // =========================================================================
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                     shape = RoundedCornerShape(16.dp),

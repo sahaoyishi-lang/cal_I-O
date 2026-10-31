@@ -431,4 +431,75 @@ object FoodDatabase {
 
         return null
     }
+
+    /**
+     * Finds related/similar foods of the same type/category (e.g. for rice: brown rice, biryani, dal, oats)
+     */
+    fun getRelatedFoods(food: FoodItem): List<FoodItem> {
+        val sameCategory = foods.filter { it.category == food.category && it.id != food.id }
+        val commonPairs = when (food.id) {
+            "rice_cooked_white" -> listOf("rice_cooked_brown", "chicken_biryani", "dal_lentils_yellow", "rolled_oats", "cooked_pasta")
+            "rice_cooked_brown" -> listOf("rice_cooked_white", "chicken_biryani", "rolled_oats", "dal_lentils_yellow")
+            "chicken_biryani" -> listOf("rice_cooked_white", "dal_lentils_yellow", "chicken_breast_grilled", "roti_chapati")
+            "roti_chapati" -> listOf("bread_whole_wheat", "dal_lentils_yellow", "paneer_cottage_cheese", "chicken_breast_grilled")
+            "bread_whole_wheat" -> listOf("roti_chapati", "burger_sandwich", "rolled_oats", "boiled_egg")
+            "dal_lentils_yellow" -> listOf("chickpeas_chana", "rice_cooked_white", "roti_chapati", "chicken_biryani")
+            "chicken_breast_grilled" -> listOf("chicken_biryani", "salmon_fillet", "boiled_egg", "egg_omelette")
+            "boiled_egg" -> listOf("egg_omelette", "chicken_breast_grilled", "bread_whole_wheat", "milk_whole")
+            "egg_omelette" -> listOf("boiled_egg", "bread_whole_wheat", "roti_chapati", "milk_whole")
+            "banana" -> listOf("apple", "orange_citrus", "mango_fresh", "rolled_oats")
+            "apple" -> listOf("banana", "orange_citrus", "mango_fresh", "mixed_green_salad")
+            "pizza_slice" -> listOf("burger_sandwich", "cooked_pasta", "noodles_ramen")
+            "burger_sandwich" -> listOf("pizza_slice", "bread_whole_wheat", "cooked_pasta")
+            "mixed_green_salad" -> listOf("broccoli_steamed", "apple", "boiled_potatoes")
+            "milk_tea_chai" -> listOf("black_coffee", "milk_whole", "bread_whole_wheat")
+            "black_coffee" -> listOf("milk_tea_chai", "milk_whole")
+            else -> emptyList()
+        }.mapNotNull { findById(it) }
+
+        val combined = (commonPairs + sameCategory).distinctBy { it.id }.filter { it.id != food.id }
+        return if (combined.isNotEmpty()) combined.take(6) else foods.filter { it.id != food.id }.take(6)
+    }
+
+    /**
+     * Looks up or constructs a custom food item with realistic nutrition if not in database
+     */
+    fun findOrCreateFood(name: String): FoodItem {
+        val trimmed = name.trim()
+        val exactOrFuzzy = foods.firstOrNull { 
+            it.name.equals(trimmed, ignoreCase = true) || 
+            it.name.contains(trimmed, ignoreCase = true) || 
+            trimmed.contains(it.name, ignoreCase = true) 
+        }
+        if (exactOrFuzzy != null) return exactOrFuzzy
+
+        val lower = trimmed.lowercase()
+        val isGrainOrRice = lower.contains("rice") || lower.contains("chawal") || lower.contains("khichdi") || lower.contains("poha") || lower.contains("upma") || lower.contains("dosa") || lower.contains("idli") || lower.contains("grain")
+        val isBread = lower.contains("roti") || lower.contains("paratha") || lower.contains("naan") || lower.contains("puri") || lower.contains("bread") || lower.contains("chapati")
+        val isCurryOrDal = lower.contains("dal") || lower.contains("curry") || lower.contains("gravy") || lower.contains("sabzi") || lower.contains("soup") || lower.contains("rajma") || lower.contains("chole")
+        val isSweetOrFruit = lower.contains("apple") || lower.contains("sweet") || lower.contains("kheer") || lower.contains("dessert") || lower.contains("fruit") || lower.contains("cake")
+
+        val (cals, prot, carbs, fat, unit) = when {
+            isGrainOrRice -> Quintuple(150f, 3.5f, 30f, 1.5f, PortionUnit.BOWLS)
+            isBread -> Quintuple(270f, 8f, 48f, 5f, PortionUnit.PIECES)
+            isCurryOrDal -> Quintuple(130f, 6.5f, 16f, 4.5f, PortionUnit.BOWLS)
+            isSweetOrFruit -> Quintuple(120f, 1.5f, 26f, 2f, PortionUnit.CUPS)
+            else -> Quintuple(160f, 7f, 22f, 4.5f, PortionUnit.BOWLS)
+        }
+
+        return FoodItem(
+            id = "custom_${trimmed.lowercase().replace(" ", "_")}",
+            name = trimmed.replaceFirstChar { it.uppercase() },
+            category = "Custom Meal",
+            defaultServingUnit = unit,
+            defaultServingQuantity = 1.0f,
+            caloriesPer100g = cals,
+            proteinPer100g = prot,
+            carbsPer100g = carbs,
+            fatPer100g = fat,
+            description = "Custom meal: $trimmed"
+        )
+    }
+
+    private data class Quintuple<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
 }
