@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -16,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -50,7 +50,9 @@ import com.calorietrack.app.model.LogSource
 import com.calorietrack.app.model.LoggedMealEntry
 import com.calorietrack.app.model.MealSlot
 import com.calorietrack.app.model.PortionUnit
+import com.calorietrack.app.nutrition.FoodCandidate
 import com.calorietrack.app.nutrition.FoodDatabase
+import com.calorietrack.app.nutrition.FoodVisionClassifier
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
@@ -73,11 +75,10 @@ fun CameraClarifyDialog(
     var selectedUnit by remember { mutableStateOf(selectedFood.defaultServingUnit) }
     var quantity by remember { mutableFloatStateOf(selectedFood.defaultServingQuantity) }
     var selectedMealSlot by remember { mutableStateOf(MealSlot.LUNCH) }
-    
-    // AI detection states
+
+    // Multi-candidate AI recognition results
     var isAnalyzing by remember { mutableStateOf(false) }
-    var detectedLabels by remember { mutableStateOf<List<String>>(emptyList()) }
-    var detectionConfidence by remember { mutableFloatStateOf(0f) }
+    var topCandidates by remember { mutableStateOf<List<FoodCandidate>>(emptyList()) }
     var detectionMessage by remember { mutableStateOf<String?>(null) }
 
     // Food Search picker dialog state
@@ -85,41 +86,42 @@ fun CameraClarifyDialog(
 
     fun runFoodRecognition(bitmap: Bitmap) {
         isAnalyzing = true
-        detectionMessage = "AI analyzing food..."
+        detectionMessage = "Scanning food with AI & color recognition..."
+
         try {
             val inputImage = InputImage.fromBitmap(bitmap, 0)
             val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
 
             labeler.process(inputImage)
                 .addOnSuccessListener { labels ->
-                    isAnalyzing = false
-                    val labelTexts = labels.map { it.text }
-                    detectedLabels = labelTexts
+                    val labelPairs = labels.map { it.text to it.confidence }
+                    val result = FoodVisionClassifier.classifyImage(bitmap, labelPairs)
 
-                    val bestMatch = FoodDatabase.findBestMatchForLabels(labelTexts)
-                    if (bestMatch != null) {
-                        selectedFood = bestMatch
-                        selectedUnit = bestMatch.defaultServingUnit
-                        quantity = bestMatch.defaultServingQuantity
-                        val topConfidence = labels.firstOrNull()?.confidence ?: 0.85f
-                        detectionConfidence = topConfidence
-                        detectionMessage = "Identified: ${bestMatch.name} (${(topConfidence * 100).toInt()}% confidence)"
-                    } else {
-                        val firstLabel = labelTexts.firstOrNull()
-                        detectionMessage = if (firstLabel != null) {
-                            "Detected '$firstLabel'. Please confirm or pick the exact food below."
-                        } else {
-                            "Food not clearly recognized. Please select or search your meal below."
-                        }
-                    }
-                }
-                .addOnFailureListener { e ->
+                    selectedFood = result.bestMatch
+                    selectedUnit = result.bestMatch.defaultServingUnit
+                    quantity = result.bestMatch.defaultServingQuantity
+                    topCandidates = result.candidates
+                    detectionMessage = "Identified: ${result.bestMatch.name} (${(result.confidence * 100).toInt()}% match)"
                     isAnalyzing = false
-                    detectionMessage = "Recognition error: ${e.message}"
+                }
+                .addOnFailureListener {
+                    // Fallback to central plate color classification
+                    val result = FoodVisionClassifier.classifyImage(bitmap, emptyList())
+                    selectedFood = result.bestMatch
+                    selectedUnit = result.bestMatch.defaultServingUnit
+                    quantity = result.bestMatch.defaultServingQuantity
+                    topCandidates = result.candidates
+                    detectionMessage = "Identified: ${result.bestMatch.name}"
+                    isAnalyzing = false
                 }
         } catch (e: Exception) {
+            val result = FoodVisionClassifier.classifyImage(bitmap, emptyList())
+            selectedFood = result.bestMatch
+            selectedUnit = result.bestMatch.defaultServingUnit
+            quantity = result.bestMatch.defaultServingQuantity
+            topCandidates = result.candidates
+            detectionMessage = "Identified: ${result.bestMatch.name}"
             isAnalyzing = false
-            detectionMessage = "Could not analyze image: ${e.message}"
         }
     }
 
@@ -132,21 +134,17 @@ fun CameraClarifyDialog(
         return FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", tempFile)
     }
 
-    // Camera Full Capture Launcher with FileProvider URI
+    // Camera Full Capture Launcher with FileProvider URI & EXIF upright orientation
     val takePictureLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
         if (success && currentPhotoUri != null) {
-            try {
-                val inputStream = context.contentResolver.openInputStream(currentPhotoUri!!)
-                val options = BitmapFactory.Options().apply { inSampleSize = 2 }
-                val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
-                if (bitmap != null) {
-                    capturedBitmap = bitmap
-                    runFoodRecognition(bitmap)
-                }
-            } catch (e: Exception) {
-                Toast.makeText(context, "Could not load captured photo: ${e.message}", Toast.LENGTH_SHORT).show()
+            val uprightBitmap = FoodVisionClassifier.decodeUprightBitmap(context, currentPhotoUri!!)
+            if (uprightBitmap != null) {
+                capturedBitmap = uprightBitmap
+                runFoodRecognition(uprightBitmap)
+            } else {
+                Toast.makeText(context, "Could not load captured photo", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -196,16 +194,12 @@ fun CameraClarifyDialog(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
-            try {
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val options = BitmapFactory.Options().apply { inSampleSize = 2 }
-                val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
-                if (bitmap != null) {
-                    capturedBitmap = bitmap
-                    runFoodRecognition(bitmap)
-                }
-            } catch (e: Exception) {
-                Toast.makeText(context, "Could not load image: ${e.message}", Toast.LENGTH_SHORT).show()
+            val uprightBitmap = FoodVisionClassifier.decodeUprightBitmap(context, uri)
+            if (uprightBitmap != null) {
+                capturedBitmap = uprightBitmap
+                runFoodRecognition(uprightBitmap)
+            } else {
+                Toast.makeText(context, "Could not load image", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -236,13 +230,13 @@ fun CameraClarifyDialog(
                 ) {
                     Column {
                         Text(
-                            "Smart Food Camera",
+                            "Smart Food Recognition",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            "Snap pic & clarify exact portion",
+                            "Snap food photo & clarify exact portion",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -262,7 +256,7 @@ fun CameraClarifyDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(170.dp)
+                        .height(180.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
@@ -274,7 +268,7 @@ fun CameraClarifyDialog(
                             modifier = Modifier.fillMaxSize()
                         )
 
-                        // Retake / Change Photo overlay button
+                        // Retake overlay button
                         Surface(
                             onClick = { requestCameraAndLaunch() },
                             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
@@ -301,12 +295,12 @@ fun CameraClarifyDialog(
                             Icon(
                                 Icons.Default.CameraAlt,
                                 contentDescription = null,
-                                modifier = Modifier.size(42.dp),
+                                modifier = Modifier.size(44.dp),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "Take a picture of what you're eating",
+                                "Snap a picture of your plate or meal",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -337,7 +331,7 @@ fun CameraClarifyDialog(
                     // Analyzing overlay
                     if (isAnalyzing) {
                         Surface(
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.padding(12.dp)
                         ) {
@@ -347,18 +341,18 @@ fun CameraClarifyDialog(
                             ) {
                                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("AI identifying food...", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                                Text("AI identifying food & colors...", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
                 }
 
-                // AI Detection Message Banner
+                // AI Detection Banner
                 if (detectionMessage != null) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
@@ -370,16 +364,55 @@ fun CameraClarifyDialog(
                             Text(
                                 text = detectionMessage ?: "",
                                 style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium,
+                                fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // Active Food Header & "Change / Search" button
+                // TOP IDENTIFIED CANDIDATES SECTION (Google Lens style)
+                if (topCandidates.isNotEmpty()) {
+                    Text(
+                        text = "Identified Matches (tap to switch):",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.Start)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(topCandidates) { candidate ->
+                            val isSelected = selectedFood.id == candidate.food.id
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    selectedFood = candidate.food
+                                    selectedUnit = candidate.food.defaultServingUnit
+                                    quantity = candidate.food.defaultServingQuantity
+                                },
+                                label = {
+                                    Text(
+                                        "${candidate.food.name} (${(candidate.confidence * 100).toInt()}%)",
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                leadingIcon = if (isSelected) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                                } else null
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                // Active Food Header with "Search / Change Any Food"
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -393,7 +426,7 @@ fun CameraClarifyDialog(
                             color = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "${selectedFood.category} • ${selectedFood.caloriesPer100g.toInt()} kcal/100g",
+                            text = "${selectedFood.category} • ${selectedFood.caloriesPer100g.toInt()} kcal per 100g",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -406,7 +439,7 @@ fun CameraClarifyDialog(
                     ) {
                         Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Search/Change", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Search/Pick", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -441,7 +474,11 @@ fun CameraClarifyDialog(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         // Serving Unit Selection
-                        Text("Portion Measurement Unit:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "Serving Unit:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -469,14 +506,14 @@ fun CameraClarifyDialog(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Interactive Quantity Stepper & Clarifier
+                        // Interactive Quantity Stepper
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text("Quantity Taken", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
+                                Text("Amount Selected", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
                                 Text(
                                     text = if (selectedUnit == PortionUnit.GRAMS) "${quantity.roundToInt()} grams" else "$quantity ${selectedUnit.displayName}",
                                     style = MaterialTheme.typography.titleMedium,
