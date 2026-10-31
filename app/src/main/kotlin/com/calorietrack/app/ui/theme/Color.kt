@@ -2,50 +2,65 @@ package com.calorietrack.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Fresh Health & Fitness Color Palette
+// =========================================================================
+// Light Mode: White & Violet
+// =========================================================================
+val primaryLight = Color(0xFF7C3AED)          // Vibrant Electric Violet
+val onPrimaryLight = Color(0xFFFFFFFF)        // Pure White text/icon on Violet
+val primaryContainerLight = Color(0xFFEDE9FE) // Soft Lilac/Lavender tinted container
+val onPrimaryContainerLight = Color(0xFF2E1065) // Deep Violet text
 
-// Light Colors
-val primaryLight = Color(0xFF0D7E46)
-val primaryContainerLight = Color(0xFFD2F5DC)
-val onPrimaryLight = Color(0xFFFFFFFF)
-val onPrimaryContainerLight = Color(0xFF00210E)
-
-val secondaryLight = Color(0xFF007577)
-val secondaryContainerLight = Color(0xFFCEF1EF)
+val secondaryLight = Color(0xFF8B5CF6)        // Medium Violet
 val onSecondaryLight = Color(0xFFFFFFFF)
-val onSecondaryContainerLight = Color(0xFF002021)
+val secondaryContainerLight = Color(0xFFF5F3FF) // Very soft subtle violet-white
+val onSecondaryContainerLight = Color(0xFF371B78)
 
-val tertiaryLight = Color(0xFFD85542)
-val tertiaryContainerLight = Color(0xFFFFDAD4)
+val tertiaryLight = Color(0xFFA855F7)         // Bright Orchid Violet
 val onTertiaryLight = Color(0xFFFFFFFF)
-val onTertiaryContainerLight = Color(0xFF3B0904)
+val tertiaryContainerLight = Color(0xFFFAF5FF)
+val onTertiaryContainerLight = Color(0xFF581C87)
 
-val backgroundLight = Color(0xFFF8FAF8)
-val onBackgroundLight = Color(0xFF181D19)
-val surfaceLight = Color(0xFFFFFFFF)
-val onSurfaceLight = Color(0xFF181D19)
-val surfaceVariantLight = Color(0xFFE8EEE9)
-val onSurfaceVariantLight = Color(0xFF424943)
+val backgroundLight = Color(0xFFFFFFFF)       // Crisp Pure White
+val onBackgroundLight = Color(0xFF18181B)     // Sleek Dark Slate / Almost Black
+val surfaceLight = Color(0xFFFFFFFF)          // Pure White
+val onSurfaceLight = Color(0xFF18181B)
+val surfaceVariantLight = Color(0xFFF7F6FC)    // Soft Violet-tinted White card surface
+val onSurfaceVariantLight = Color(0xFF52525B) // Muted slate text
+val outlineLight = Color(0xFFE4E4E7)          // Subtle card border
+val outlineVariantLight = Color(0xFFDDD6FE)   // Gentle violet border
 
-// Dark Colors
-val primaryDark = Color(0xFF5ED88C)
-val primaryContainerDark = Color(0xFF005328)
-val onPrimaryDark = Color(0xFF003919)
-val onPrimaryContainerDark = Color(0xFFD2F5DC)
+// =========================================================================
+// Dark Mode: Navy Blue & Faded Pink
+// =========================================================================
+val primaryDark = Color(0xFFF472B6)           // Gorgeous Soft Faded Pink / Rose
+val onPrimaryDark = Color(0xFF3B0728)         // Deep plum on pink
+val primaryContainerDark = Color(0xFF4A1536)  // Rich deep rose-navy container
+val onPrimaryContainerDark = Color(0xFFFCE7F3)// Delicate soft pink text
 
-val secondaryDark = Color(0xFF53D7D5)
-val secondaryContainerDark = Color(0xFF004F50)
-val onSecondaryDark = Color(0xFF003738)
-val onSecondaryContainerDark = Color(0xFFCEF1EF)
+val secondaryDark = Color(0xFFFB7185)         // Soft dusty coral/rose pink
+val onSecondaryDark = Color(0xFF4C0519)
+val secondaryContainerDark = Color(0xFF311528)
+val onSecondaryContainerDark = Color(0xFFFFE4E6)
 
-val tertiaryDark = Color(0xFFFF897A)
-val tertiaryContainerDark = Color(0xFF881F12)
-val onTertiaryDark = Color(0xFF5F1409)
-val onTertiaryContainerDark = Color(0xFFFFDAD4)
+val tertiaryDark = Color(0xFFFDA4AF)          // Muted faded blush pink
+val onTertiaryDark = Color(0xFF4C0B1B)
+val tertiaryContainerDark = Color(0xFF24142B)
+val onTertiaryContainerDark = Color(0xFFFBCFE8)
 
-val backgroundDark = Color(0xFF101512)
-val onBackgroundDark = Color(0xFFE0E4DF)
-val surfaceDark = Color(0xFF181D1A)
-val onSurfaceDark = Color(0xFFE0E4DF)
-val surfaceVariantDark = Color(0xFF262C27)
-val onSurfaceVariantDark = Color(0xFFC2C9C2)
+val backgroundDark = Color(0xFF0B0F19)        // Luxury Deep Midnight Navy Blue
+val onBackgroundDark = Color(0xFFF1F5F9)      // Cool Off-White text
+val surfaceDark = Color(0xFF111827)           // Deep Slate Navy surface
+val onSurfaceDark = Color(0xFFF1F5F9)
+val surfaceVariantDark = Color(0xFF1E293B)     // Rich Slate-Navy card container
+val onSurfaceVariantDark = Color(0xFF94A3B8)  // Soft slate muted text
+val outlineDark = Color(0xFF334155)           // Navy border
+val outlineVariantDark = Color(0xFF475569)
+
+// Accent Helper Colors for Macros (coordinated with Violet & Faded Pink)
+val proteinLight = Color(0xFF7C3AED)          // Violet
+val carbsLight = Color(0xFF2563EB)            // Royal Blue
+val fatLight = Color(0xFFD97706)              // Warm Amber
+
+val proteinDark = Color(0xFFF472B6)           // Faded Pink
+val carbsDark = Color(0xFF60A5FA)             // Soft Sky Blue
+val fatDark = Color(0xFFFBBF24)               // Soft Amber

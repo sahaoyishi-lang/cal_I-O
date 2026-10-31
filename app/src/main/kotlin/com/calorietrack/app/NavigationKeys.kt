@@ -4,7 +4,13 @@ import androidx.navigation3.runtime.NavKey
 import kotlinx.serialization.Serializable
 
 @Serializable
+data object WelcomeKey : NavKey
+
+@Serializable
 data object AuthKey : NavKey
+
+@Serializable
+data object SignUpKey : NavKey
 
 @Serializable
 data object OnboardingProfileKey : NavKey

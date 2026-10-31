@@ -137,7 +137,7 @@ fun ProfileSetupScreen(
                         MetricPreviewItem("TDEE", "${liveTargets.tdee}", "kcal")
                     }
 
-                    Divider(
+                    HorizontalDivider(
                         modifier = Modifier.padding(vertical = 10.dp),
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                     )

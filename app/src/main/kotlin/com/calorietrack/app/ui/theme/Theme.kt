@@ -10,6 +10,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 
+// Dark Theme: Navy Blue & Faded Pink
 private val DarkColorScheme = darkColorScheme(
     primary = primaryDark,
     onPrimary = onPrimaryDark,
@@ -28,9 +29,12 @@ private val DarkColorScheme = darkColorScheme(
     surface = surfaceDark,
     onSurface = onSurfaceDark,
     surfaceVariant = surfaceVariantDark,
-    onSurfaceVariant = onSurfaceVariantDark
+    onSurfaceVariant = onSurfaceVariantDark,
+    outline = outlineDark,
+    outlineVariant = outlineVariantDark
 )
 
+// Light Theme: Pure White & Vibrant Violet
 private val LightColorScheme = lightColorScheme(
     primary = primaryLight,
     onPrimary = onPrimaryLight,
@@ -49,13 +53,15 @@ private val LightColorScheme = lightColorScheme(
     surface = surfaceLight,
     onSurface = onSurfaceLight,
     surfaceVariant = surfaceVariantLight,
-    onSurfaceVariant = onSurfaceVariantLight
+    onSurfaceVariant = onSurfaceVariantLight,
+    outline = outlineLight,
+    outlineVariant = outlineVariantLight
 )
 
 @Composable
 fun CalorieTrackTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,
+    dynamicColor: Boolean = false, // Preserve our custom Violet & Faded Pink brand colors
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

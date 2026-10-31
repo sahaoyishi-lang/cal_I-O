@@ -43,8 +43,17 @@ data class DailySummary(
         get() = if (targetFat > 0) (totalFat.toFloat() / targetFat.toFloat()).coerceIn(0f, 1f) else 0f
 }
 
+private data class UserSessionData(
+    val passwordHash: String,
+    var user: User,
+    var dietChart: CustomizedDietChart? = null,
+    val meals: MutableList<LoggedMealEntry> = mutableListOf(),
+    var waterMl: Int = 0
+)
+
 class CalorieAppRepository private constructor() {
 
+    // When the app is opened, start with no active user session (pure fresh state)
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
 
@@ -54,67 +63,16 @@ class CalorieAppRepository private constructor() {
     private val _loggedMeals = MutableStateFlow<List<LoggedMealEntry>>(emptyList())
     val loggedMeals: StateFlow<List<LoggedMealEntry>> = _loggedMeals.asStateFlow()
 
-    private val _waterDrankMl = MutableStateFlow(1250) // initial water sample
+    private val _waterDrankMl = MutableStateFlow(0)
     val waterDrankMl: StateFlow<Int> = _waterDrankMl.asStateFlow()
 
-    // Mock registered users database for local persistence
-    private val registeredUsers = mutableMapOf<String, Pair<String, User>>()
+    // Isolated per-user storage (key = normalized email)
+    private val userDatabase = mutableMapOf<String, UserSessionData>()
 
-    init {
-        // Pre-populate demo user for smooth testing
-        val demoEmail = "demo@healthy.com"
-        val demoProfile = UserProfile(
-            age = 26,
-            gender = Gender.FEMALE,
-            weightKg = 62.0f,
-            heightCm = 165.0f,
-            activityLevel = ActivityLevel.MODERATE,
-            goal = FitnessGoal.LOSE_WEIGHT,
-            preference = DietaryPreference.BALANCED
-        )
-        val demoTargets = NutritionCalculator.computeTargets(demoProfile)
-        val demoUser = User(
-            email = demoEmail,
-            name = "Alex Morgan",
-            isProfileComplete = true,
-            profile = demoProfile,
-            targets = demoTargets
-        )
-        registeredUsers[demoEmail] = Pair("password123", demoUser)
-        _currentUser.value = demoUser
-        _dietChart.value = NutritionCalculator.generateDietChart(demoProfile, demoTargets)
-
-        // Seed some initial logged meals for realistic experience
-        _loggedMeals.value = listOf(
-            LoggedMealEntry(
-                id = UUID.randomUUID().toString(),
-                foodName = "Rolled Oats with Berries",
-                mealSlot = MealSlot.BREAKFAST,
-                quantity = 1f,
-                unit = PortionUnit.BOWLS,
-                calories = 320,
-                proteinGrams = 12,
-                carbsGrams = 54,
-                fatGrams = 6,
-                source = com.calorietrack.app.model.LogSource.MANUAL,
-                timestamp = System.currentTimeMillis() - 14400000
-            ),
-            LoggedMealEntry(
-                id = UUID.randomUUID().toString(),
-                foodName = "Boiled Whole Egg",
-                mealSlot = MealSlot.BREAKFAST,
-                quantity = 2f,
-                unit = PortionUnit.PIECES,
-                calories = 156,
-                proteinGrams = 13,
-                carbsGrams = 2,
-                fatGrams = 11,
-                source = com.calorietrack.app.model.LogSource.VOICE,
-                timestamp = System.currentTimeMillis() - 14000000
-            )
-        )
-    }
-
+    /**
+     * Create a brand new user account with Email & Password.
+     * Starts with a fresh slate (0 calories, 0 water, clean profile).
+     */
     fun signUp(email: String, pass: String, name: String): Result<User> {
         val trimmedEmail = email.trim().lowercase()
         if (!android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
@@ -124,7 +82,10 @@ class CalorieAppRepository private constructor() {
             return Result.failure(IllegalArgumentException("Password must be at least 6 characters"))
         }
         if (name.isBlank()) {
-            return Result.failure(IllegalArgumentException("Name cannot be empty"))
+            return Result.failure(IllegalArgumentException("Please enter your name"))
+        }
+        if (userDatabase.containsKey(trimmedEmail)) {
+            return Result.failure(IllegalArgumentException("An account with this email already exists. Please Sign In."))
         }
 
         val newUser = User(
@@ -132,49 +93,116 @@ class CalorieAppRepository private constructor() {
             name = name.trim(),
             isProfileComplete = false
         )
-        registeredUsers[trimmedEmail] = Pair(pass, newUser)
-        _currentUser.value = newUser
-        _dietChart.value = null
-        _loggedMeals.value = emptyList()
+
+        val session = UserSessionData(
+            passwordHash = pass,
+            user = newUser,
+            dietChart = null,
+            meals = mutableListOf(),
+            waterMl = 0
+        )
+        userDatabase[trimmedEmail] = session
+
+        applyUserSession(session)
         return Result.success(newUser)
     }
 
+    /**
+     * Sign in to an existing account with Email & Password.
+     */
     fun signIn(email: String, pass: String): Result<User> {
         val trimmedEmail = email.trim().lowercase()
-        val entry = registeredUsers[trimmedEmail]
-            ?: return Result.failure(IllegalArgumentException("No account found with this email"))
+        val session = userDatabase[trimmedEmail]
+            ?: return Result.failure(IllegalArgumentException("No account found for $trimmedEmail. Please Sign Up first."))
 
-        if (entry.first != pass) {
-            return Result.failure(IllegalArgumentException("Incorrect password"))
+        if (session.passwordHash != pass && session.passwordHash != "google_oauth") {
+            return Result.failure(IllegalArgumentException("Incorrect password. Please try again."))
         }
 
-        val user = entry.second
-        _currentUser.value = user
-        if (user.profile != null && user.targets != null) {
-            _dietChart.value = NutritionCalculator.generateDietChart(user.profile, user.targets)
-        }
-        return Result.success(user)
+        applyUserSession(session)
+        return Result.success(session.user)
     }
 
+    /**
+     * Sign In or Sign Up with Google.
+     * If user exists, log them in. If new, create a clean account for them.
+     */
+    fun signInWithGoogle(googleEmail: String, googleName: String): Result<User> {
+        val trimmedEmail = googleEmail.trim().lowercase()
+        if (trimmedEmail.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
+            return Result.failure(IllegalArgumentException("Invalid Google email address"))
+        }
+
+        val existingSession = userDatabase[trimmedEmail]
+        if (existingSession != null) {
+            applyUserSession(existingSession)
+            return Result.success(existingSession.user)
+        }
+
+        // New Google account
+        val displayName = if (googleName.isNotBlank()) googleName.trim() else trimmedEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
+        val newUser = User(
+            email = trimmedEmail,
+            name = displayName,
+            isProfileComplete = false
+        )
+
+        val newSession = UserSessionData(
+            passwordHash = "google_oauth",
+            user = newUser,
+            dietChart = null,
+            meals = mutableListOf(),
+            waterMl = 0
+        )
+        userDatabase[trimmedEmail] = newSession
+
+        applyUserSession(newSession)
+        return Result.success(newUser)
+    }
+
+    /**
+     * Sign out the active user and reset memory state.
+     */
     fun signOut() {
         _currentUser.value = null
         _dietChart.value = null
         _loggedMeals.value = emptyList()
+        _waterDrankMl.value = 0
     }
 
+    /**
+     * Save profile details (age, weight, height, goal, preference)
+     * and compute personalized calorie targets & diet chart.
+     */
     fun saveProfile(profile: UserProfile): CustomizedDietChart {
         val targets = NutritionCalculator.computeTargets(profile)
         val chart = NutritionCalculator.generateDietChart(profile, targets)
 
-        val user = _currentUser.value ?: User(email = "user@calorie.app", name = "User")
-        val updatedUser = user.copy(
+        val currentUserObj = _currentUser.value ?: User(email = "athlete@nutritrack.app", name = "Athlete")
+        val updatedUser = currentUserObj.copy(
             isProfileComplete = true,
             profile = profile,
             targets = targets
         )
+
         _currentUser.value = updatedUser
-        registeredUsers[updatedUser.email] = Pair(registeredUsers[updatedUser.email]?.first ?: "pass", updatedUser)
         _dietChart.value = chart
+
+        // Persist to user session
+        val session = userDatabase[updatedUser.email.lowercase()]
+        if (session != null) {
+            session.user = updatedUser
+            session.dietChart = chart
+        } else {
+            userDatabase[updatedUser.email.lowercase()] = UserSessionData(
+                passwordHash = "local",
+                user = updatedUser,
+                dietChart = chart,
+                meals = _loggedMeals.value.toMutableList(),
+                waterMl = _waterDrankMl.value
+            )
+        }
+
         return chart
     }
 
@@ -182,18 +210,39 @@ class CalorieAppRepository private constructor() {
         val current = _loggedMeals.value.toMutableList()
         current.add(0, entry)
         _loggedMeals.value = current
+
+        val email = _currentUser.value?.email?.lowercase()
+        if (email != null) {
+            userDatabase[email]?.meals?.clear()
+            userDatabase[email]?.meals?.addAll(current)
+        }
     }
 
     fun deleteMeal(id: String) {
-        _loggedMeals.value = _loggedMeals.value.filter { it.id != id }
+        val filtered = _loggedMeals.value.filter { it.id != id }
+        _loggedMeals.value = filtered
+
+        val email = _currentUser.value?.email?.lowercase()
+        if (email != null) {
+            userDatabase[email]?.meals?.clear()
+            userDatabase[email]?.meals?.addAll(filtered)
+        }
     }
 
     fun addWater(ml: Int = 250) {
         _waterDrankMl.value += ml
+        val email = _currentUser.value?.email?.lowercase()
+        if (email != null) {
+            userDatabase[email]?.waterMl = _waterDrankMl.value
+        }
     }
 
     fun resetWater() {
         _waterDrankMl.value = 0
+        val email = _currentUser.value?.email?.lowercase()
+        if (email != null) {
+            userDatabase[email]?.waterMl = 0
+        }
     }
 
     fun getDailySummary(): DailySummary {
@@ -231,8 +280,14 @@ class CalorieAppRepository private constructor() {
         )
     }
 
+    private fun applyUserSession(session: UserSessionData) {
+        _currentUser.value = session.user
+        _dietChart.value = session.dietChart
+        _loggedMeals.value = session.meals.toList()
+        _waterDrankMl.value = session.waterMl
+    }
+
     companion object {
         val instance by lazy { CalorieAppRepository() }
     }
 }
-

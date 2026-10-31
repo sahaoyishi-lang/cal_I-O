@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.Icon
@@ -20,6 +19,7 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.calorietrack.app.data.CalorieAppRepository
 import com.calorietrack.app.ui.auth.AuthScreen
+import com.calorietrack.app.ui.auth.WelcomeScreen
 import com.calorietrack.app.ui.dashboard.DashboardScreen
 import com.calorietrack.app.ui.dietchart.DietChartScreen
 import com.calorietrack.app.ui.onboarding.ProfileSetupScreen
@@ -31,9 +31,9 @@ fun MainNavigation(
 ) {
     val currentUser by repository.currentUser.collectAsState()
 
-    // Determine starting key based on session
+    // When the user opens the app, if not signed in, show the Welcome Screen
     val initialKey = when {
-        currentUser == null -> AuthKey
+        currentUser == null -> WelcomeKey
         !currentUser!!.isProfileComplete -> OnboardingProfileKey
         else -> DashboardKey
     }
@@ -43,8 +43,10 @@ fun MainNavigation(
     // Sync backStack when user logs in or logs out
     LaunchedEffect(currentUser) {
         if (currentUser == null) {
-            backStack.clear()
-            backStack.add(AuthKey)
+            if (backStack.lastOrNull() !is WelcomeKey && backStack.lastOrNull() !is AuthKey && backStack.lastOrNull() !is SignUpKey) {
+                backStack.clear()
+                backStack.add(WelcomeKey)
+            }
         } else if (!currentUser!!.isProfileComplete) {
             if (backStack.lastOrNull() !is OnboardingProfileKey) {
                 backStack.clear()
@@ -110,8 +112,54 @@ fun MainNavigation(
                     }
                 },
                 entryProvider = entryProvider {
+                    entry<WelcomeKey> {
+                        WelcomeScreen(
+                            onNavigateToSignUp = {
+                                backStack.add(SignUpKey)
+                            },
+                            onNavigateToSignIn = {
+                                backStack.add(AuthKey)
+                            },
+                            onAuthSuccess = { user ->
+                                backStack.clear()
+                                if (user.isProfileComplete) {
+                                    backStack.add(DashboardKey)
+                                } else {
+                                    backStack.add(OnboardingProfileKey)
+                                }
+                            }
+                        )
+                    }
+
                     entry<AuthKey> {
                         AuthScreen(
+                            initialTab = 0, // Sign In
+                            onBack = {
+                                if (backStack.size > 1) backStack.removeLastOrNull() else {
+                                    backStack.clear()
+                                    backStack.add(WelcomeKey)
+                                }
+                            },
+                            onAuthSuccess = { user ->
+                                backStack.clear()
+                                if (user.isProfileComplete) {
+                                    backStack.add(DashboardKey)
+                                } else {
+                                    backStack.add(OnboardingProfileKey)
+                                }
+                            }
+                        )
+                    }
+
+                    entry<SignUpKey> {
+                        AuthScreen(
+                            initialTab = 1, // Create Account
+                            onBack = {
+                                if (backStack.size > 1) backStack.removeLastOrNull() else {
+                                    backStack.clear()
+                                    backStack.add(WelcomeKey)
+                                }
+                            },
                             onAuthSuccess = { user ->
                                 backStack.clear()
                                 if (user.isProfileComplete) {
@@ -157,8 +205,9 @@ fun MainNavigation(
                                 backStack.add(OnboardingProfileKey)
                             },
                             onSignOut = {
+                                repository.signOut()
                                 backStack.clear()
-                                backStack.add(AuthKey)
+                                backStack.add(WelcomeKey)
                             }
                         )
                     }
