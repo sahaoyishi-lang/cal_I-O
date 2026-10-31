@@ -6,7 +6,7 @@ import com.calorietrack.app.model.PortionUnit
 object FoodDatabase {
 
     val foods: List<FoodItem> = listOf(
-        // Grains & Carbs
+        // Grains & Rice & Breads
         FoodItem(
             id = "rice_cooked_white",
             name = "Cooked White Rice",
@@ -18,7 +18,7 @@ object FoodDatabase {
             carbsPer100g = 28.2f,
             fatPer100g = 0.3f,
             fiberPer100g = 0.4f,
-            description = "Standard cooked white grain rice (1 medium bowl is ~150g)"
+            description = "Standard cooked white grain rice (1 medium bowl is ~150g = 195 kcal)"
         ),
         FoodItem(
             id = "rice_cooked_brown",
@@ -32,6 +32,19 @@ object FoodDatabase {
             fatPer100g = 1.0f,
             fiberPer100g = 1.6f,
             description = "Whole grain fiber-rich cooked brown rice"
+        ),
+        FoodItem(
+            id = "chicken_biryani",
+            name = "Chicken Biryani",
+            category = "Mixed Meals",
+            defaultServingUnit = PortionUnit.BOWLS,
+            defaultServingQuantity = 1.0f,
+            caloriesPer100g = 180f,
+            proteinPer100g = 9.5f,
+            carbsPer100g = 21.0f,
+            fatPer100g = 6.8f,
+            fiberPer100g = 1.2f,
+            description = "Fragrant spiced basmati rice with chicken (1 plate/bowl ~250g = 450 kcal)"
         ),
         FoodItem(
             id = "roti_chapati",
@@ -61,20 +74,20 @@ object FoodDatabase {
         ),
         FoodItem(
             id = "rolled_oats",
-            name = "Rolled Oats (Raw)",
+            name = "Rolled Oats / Oatmeal",
             category = "Grains",
             defaultServingUnit = PortionUnit.BOWLS,
-            defaultServingQuantity = 0.5f,
-            caloriesPer100g = 389f,
-            proteinPer100g = 16.9f,
-            carbsPer100g = 66.3f,
-            fatPer100g = 6.9f,
-            fiberPer100g = 10.6f,
-            description = "High fiber complex carbohydrate"
+            defaultServingQuantity = 1.0f,
+            caloriesPer100g = 150f,
+            proteinPer100g = 5.0f,
+            carbsPer100g = 26.0f,
+            fatPer100g = 2.5f,
+            fiberPer100g = 4.0f,
+            description = "Cooked oats with water or milk (1 bowl ~180g)"
         ),
         FoodItem(
             id = "cooked_pasta",
-            name = "Cooked Pasta",
+            name = "Cooked Pasta / Spaghetti",
             category = "Grains",
             defaultServingUnit = PortionUnit.BOWLS,
             defaultServingQuantity = 1.0f,
@@ -82,10 +95,24 @@ object FoodDatabase {
             proteinPer100g = 5.8f,
             carbsPer100g = 31.0f,
             fatPer100g = 0.9f,
-            fiberPer100g = 1.8f
+            fiberPer100g = 1.8f,
+            description = "Boiled pasta (1 plate/bowl ~180g = 284 kcal)"
+        ),
+        FoodItem(
+            id = "noodles_ramen",
+            name = "Noodles / Ramen",
+            category = "Grains",
+            defaultServingUnit = PortionUnit.BOWLS,
+            defaultServingQuantity = 1.0f,
+            caloriesPer100g = 140f,
+            proteinPer100g = 4.5f,
+            carbsPer100g = 24.0f,
+            fatPer100g = 3.0f,
+            fiberPer100g = 1.2f,
+            description = "1 bowl cooked noodles ~200g"
         ),
 
-        // Proteins
+        // Proteins & Meat & Eggs
         FoodItem(
             id = "chicken_breast_grilled",
             name = "Grilled Chicken Breast",
@@ -97,7 +124,7 @@ object FoodDatabase {
             carbsPer100g = 0.0f,
             fatPer100g = 3.6f,
             fiberPer100g = 0f,
-            description = "Skinless, lean grilled chicken breast (~150g fillet is 248 kcal, 46g protein)"
+            description = "Lean grilled chicken fillet (~150g is 248 kcal, 46g protein)"
         ),
         FoodItem(
             id = "boiled_egg",
@@ -112,16 +139,16 @@ object FoodDatabase {
             description = "1 large egg is ~50g (78 kcal, 6.5g protein)"
         ),
         FoodItem(
-            id = "egg_whites",
-            name = "Egg White",
+            id = "egg_omelette",
+            name = "Egg Omelette / Scrambled",
             category = "Eggs",
             defaultServingUnit = PortionUnit.PIECES,
-            defaultServingQuantity = 3.0f,
-            caloriesPer100g = 52f,
-            proteinPer100g = 11.0f,
-            carbsPer100g = 0.7f,
-            fatPer100g = 0.2f,
-            description = "1 egg white is ~33g (17 kcal, 3.6g protein)"
+            defaultServingQuantity = 1.0f,
+            caloriesPer100g = 190f,
+            proteinPer100g = 12.0f,
+            carbsPer100g = 1.5f,
+            fatPer100g = 15.0f,
+            description = "2-egg omelette cooked with touch of oil (~100g = 190 kcal)"
         ),
         FoodItem(
             id = "salmon_fillet",
@@ -148,18 +175,6 @@ object FoodDatabase {
             description = "Indian cottage cheese"
         ),
         FoodItem(
-            id = "tofu_firm",
-            name = "Firm Tofu",
-            category = "Plant Protein",
-            defaultServingUnit = PortionUnit.BOWLS,
-            defaultServingQuantity = 0.7f,
-            caloriesPer100g = 144f,
-            proteinPer100g = 17.3f,
-            carbsPer100g = 2.8f,
-            fatPer100g = 8.7f,
-            description = "Plant-based soy protein"
-        ),
-        FoodItem(
             id = "dal_lentils_yellow",
             name = "Yellow Lentil Dal (Cooked)",
             category = "Legumes",
@@ -170,7 +185,7 @@ object FoodDatabase {
             carbsPer100g = 20.0f,
             fatPer100g = 1.8f,
             fiberPer100g = 4.2f,
-            description = "Cooked toor or moong dal (1 bowl ~ 200g)"
+            description = "Cooked toor or moong dal (1 bowl ~ 200g = 232 kcal)"
         ),
         FoodItem(
             id = "chickpeas_chana",
@@ -185,36 +200,10 @@ object FoodDatabase {
             fiberPer100g = 7.6f
         ),
 
-        // Dairy
-        FoodItem(
-            id = "greek_yogurt_plain",
-            name = "Plain Greek Yogurt",
-            category = "Dairy",
-            defaultServingUnit = PortionUnit.CUPS,
-            defaultServingQuantity = 0.75f,
-            caloriesPer100g = 59f,
-            proteinPer100g = 10.0f,
-            carbsPer100g = 3.6f,
-            fatPer100g = 0.4f,
-            description = "High protein fat-free or low-fat greek yogurt"
-        ),
-        FoodItem(
-            id = "milk_whole",
-            name = "Whole Milk",
-            category = "Dairy",
-            defaultServingUnit = PortionUnit.CUPS,
-            defaultServingQuantity = 1.0f,
-            caloriesPer100g = 62f,
-            proteinPer100g = 3.2f,
-            carbsPer100g = 4.8f,
-            fatPer100g = 3.3f,
-            description = "1 glass/cup is ~240ml"
-        ),
-
-        // Fruits & Veggies
+        // Fruits
         FoodItem(
             id = "banana",
-            name = "Banana",
+            name = "Fresh Banana",
             category = "Fruits",
             defaultServingUnit = PortionUnit.PIECES,
             defaultServingQuantity = 1.0f,
@@ -239,6 +228,60 @@ object FoodDatabase {
             description = "1 medium apple is ~180g (95 kcal)"
         ),
         FoodItem(
+            id = "orange_citrus",
+            name = "Fresh Orange",
+            category = "Fruits",
+            defaultServingUnit = PortionUnit.PIECES,
+            defaultServingQuantity = 1.0f,
+            caloriesPer100g = 47f,
+            proteinPer100g = 0.9f,
+            carbsPer100g = 11.8f,
+            fatPer100g = 0.1f,
+            fiberPer100g = 2.4f,
+            description = "1 medium orange ~130g (62 kcal)"
+        ),
+        FoodItem(
+            id = "mango_fresh",
+            name = "Fresh Mango Slices",
+            category = "Fruits",
+            defaultServingUnit = PortionUnit.CUPS,
+            defaultServingQuantity = 1.0f,
+            caloriesPer100g = 60f,
+            proteinPer100g = 0.8f,
+            carbsPer100g = 15.0f,
+            fatPer100g = 0.4f,
+            fiberPer100g = 1.6f,
+            description = "Sweet fresh mango (1 cup ~165g = 99 kcal)"
+        ),
+
+        // Vegetables & Salads
+        FoodItem(
+            id = "mixed_green_salad",
+            name = "Fresh Green Salad",
+            category = "Vegetables",
+            defaultServingUnit = PortionUnit.BOWLS,
+            defaultServingQuantity = 1.0f,
+            caloriesPer100g = 20f,
+            proteinPer100g = 1.2f,
+            carbsPer100g = 3.6f,
+            fatPer100g = 0.2f,
+            fiberPer100g = 1.8f,
+            description = "Cucumber, lettuce, tomatoes, carrots"
+        ),
+        FoodItem(
+            id = "boiled_potatoes",
+            name = "Boiled / Mashed Potatoes",
+            category = "Vegetables",
+            defaultServingUnit = PortionUnit.PIECES,
+            defaultServingQuantity = 1.0f,
+            caloriesPer100g = 87f,
+            proteinPer100g = 1.9f,
+            carbsPer100g = 20.1f,
+            fatPer100g = 0.1f,
+            fiberPer100g = 1.8f,
+            description = "1 medium potato ~150g (130 kcal)"
+        ),
+        FoodItem(
             id = "broccoli_steamed",
             name = "Steamed Broccoli",
             category = "Vegetables",
@@ -250,62 +293,89 @@ object FoodDatabase {
             fatPer100g = 0.4f,
             fiberPer100g = 3.3f
         ),
+
+        // Common Snacks & Fast Meals
         FoodItem(
-            id = "mixed_green_salad",
-            name = "Fresh Garden Salad",
-            category = "Vegetables",
-            defaultServingUnit = PortionUnit.BOWLS,
+            id = "pizza_slice",
+            name = "Pizza Slice (Cheese / Veg)",
+            category = "Fast Food",
+            defaultServingUnit = PortionUnit.SLICES,
             defaultServingQuantity = 1.0f,
-            caloriesPer100g = 20f,
-            proteinPer100g = 1.2f,
-            carbsPer100g = 3.6f,
-            fatPer100g = 0.2f,
-            fiberPer100g = 1.8f,
-            description = "Cucumber, lettuce, tomatoes, carrots"
+            caloriesPer100g = 266f,
+            proteinPer100g = 11.0f,
+            carbsPer100g = 33.0f,
+            fatPer100g = 10.0f,
+            fiberPer100g = 2.3f,
+            description = "1 regular slice is ~107g (285 kcal)"
+        ),
+        FoodItem(
+            id = "burger_sandwich",
+            name = "Burger / Veg Sandwich",
+            category = "Fast Food",
+            defaultServingUnit = PortionUnit.PIECES,
+            defaultServingQuantity = 1.0f,
+            caloriesPer100g = 250f,
+            proteinPer100g = 12.0f,
+            carbsPer100g = 30.0f,
+            fatPer100g = 9.0f,
+            fiberPer100g = 2.0f,
+            description = "1 standard burger/sandwich ~160g = 400 kcal"
         ),
 
-        // Healthy Fats & Extras
+        // Dairy & Beverages
         FoodItem(
-            id = "almonds_raw",
-            name = "Raw Almonds",
-            category = "Nuts & Seeds",
-            defaultServingUnit = PortionUnit.PIECES,
-            defaultServingQuantity = 15.0f,
-            caloriesPer100g = 579f,
-            proteinPer100g = 21.2f,
-            carbsPer100g = 21.6f,
-            fatPer100g = 49.9f,
-            description = "15 almonds is ~18g (104 kcal)"
+            id = "greek_yogurt_plain",
+            name = "Plain Greek Yogurt / Curd",
+            category = "Dairy",
+            defaultServingUnit = PortionUnit.CUPS,
+            defaultServingQuantity = 0.75f,
+            caloriesPer100g = 59f,
+            proteinPer100g = 10.0f,
+            carbsPer100g = 3.6f,
+            fatPer100g = 0.4f,
+            description = "High protein yogurt / curd"
         ),
         FoodItem(
-            id = "peanut_butter",
-            name = "Peanut Butter",
-            category = "Spreads",
-            defaultServingUnit = PortionUnit.TABLESPOON,
+            id = "milk_whole",
+            name = "Cow's Milk (Glass)",
+            category = "Dairy",
+            defaultServingUnit = PortionUnit.CUPS,
             defaultServingQuantity = 1.0f,
-            caloriesPer100g = 588f,
-            proteinPer100g = 25.1f,
-            carbsPer100g = 20.0f,
-            fatPer100g = 50.4f,
-            description = "1 tbsp is ~16g (94 kcal)"
+            caloriesPer100g = 62f,
+            proteinPer100g = 3.2f,
+            carbsPer100g = 4.8f,
+            fatPer100g = 3.3f,
+            description = "1 glass/cup is ~240ml = 149 kcal"
         ),
         FoodItem(
-            id = "olive_oil",
-            name = "Extra Virgin Olive Oil",
-            category = "Oils",
-            defaultServingUnit = PortionUnit.TABLESPOON,
+            id = "milk_tea_chai",
+            name = "Indian Milk Tea (Chai)",
+            category = "Beverages",
+            defaultServingUnit = PortionUnit.CUPS,
             defaultServingQuantity = 1.0f,
-            caloriesPer100g = 884f,
-            proteinPer100g = 0f,
-            carbsPer100g = 0f,
-            fatPer100g = 100f,
-            description = "1 tbsp is ~14g (120 kcal)"
+            caloriesPer100g = 65f,
+            proteinPer100g = 2.0f,
+            carbsPer100g = 9.0f,
+            fatPer100g = 2.4f,
+            description = "1 standard teacup ~150ml (98 kcal)"
+        ),
+        FoodItem(
+            id = "black_coffee",
+            name = "Black Coffee",
+            category = "Beverages",
+            defaultServingUnit = PortionUnit.CUPS,
+            defaultServingQuantity = 1.0f,
+            caloriesPer100g = 2f,
+            proteinPer100g = 0.1f,
+            carbsPer100g = 0.3f,
+            fatPer100g = 0.0f,
+            description = "Zero sugar black coffee"
         )
     )
 
     fun search(query: String): List<FoodItem> {
         val clean = query.trim().lowercase()
-        if (clean.isEmpty()) return foods.take(15)
+        if (clean.isEmpty()) return foods
         return foods.filter {
             it.name.lowercase().contains(clean) ||
             it.category.lowercase().contains(clean) ||
@@ -317,10 +387,48 @@ object FoodDatabase {
         return foods.find { it.id == id }
     }
 
-    fun findByNameFuzzy(name: String): FoodItem? {
-        val clean = name.trim().lowercase()
-        return foods.find { it.name.lowercase().contains(clean) || clean.contains(it.name.lowercase()) }
-            ?: foods.firstOrNull { it.id.contains(clean) }
+    /**
+     * Intelligent mapping from ML Kit vision labels to FoodDatabase items
+     */
+    fun findBestMatchForLabels(labels: List<String>): FoodItem? {
+        if (labels.isEmpty()) return null
+
+        val labelString = labels.joinToString(" ").lowercase()
+
+        // 1. Direct keyword rules based on common ML Kit labels
+        if (labelString.contains("banana")) return findById("banana")
+        if (labelString.contains("apple")) return findById("apple")
+        if (labelString.contains("orange") || labelString.contains("citrus")) return findById("orange_citrus")
+        if (labelString.contains("mango")) return findById("mango_fresh")
+        if (labelString.contains("pizza")) return findById("pizza_slice")
+        if (labelString.contains("burger") || labelString.contains("hamburger") || labelString.contains("sandwich")) return findById("burger_sandwich")
+        if (labelString.contains("rice") || labelString.contains("biryani") || labelString.contains("pilaf")) {
+            return if (labelString.contains("biryani")) findById("chicken_biryani") else findById("rice_cooked_white")
+        }
+        if (labelString.contains("bread") || labelString.contains("toast") || labelString.contains("bagel")) return findById("bread_whole_wheat")
+        if (labelString.contains("roti") || labelString.contains("chapati") || labelString.contains("flatbread") || labelString.contains("tortilla")) return findById("roti_chapati")
+        if (labelString.contains("egg") || labelString.contains("boiled egg")) return findById("boiled_egg")
+        if (labelString.contains("omelet") || labelString.contains("omelette")) return findById("egg_omelette")
+        if (labelString.contains("chicken") || labelString.contains("poultry") || labelString.contains("roast chicken")) return findById("chicken_breast_grilled")
+        if (labelString.contains("salmon") || labelString.contains("fish") || labelString.contains("seafood")) return findById("salmon_fillet")
+        if (labelString.contains("pasta") || labelString.contains("spaghetti") || labelString.contains("macaroni")) return findById("cooked_pasta")
+        if (labelString.contains("noodle") || labelString.contains("ramen")) return findById("noodles_ramen")
+        if (labelString.contains("salad") || labelString.contains("leaf vegetable") || labelString.contains("lettuce")) return findById("mixed_green_salad")
+        if (labelString.contains("potato") || labelString.contains("french fries")) return findById("boiled_potatoes")
+        if (labelString.contains("broccoli")) return findById("broccoli_steamed")
+        if (labelString.contains("soup") || labelString.contains("broth") || labelString.contains("stew") || labelString.contains("curry")) return findById("dal_lentils_yellow")
+        if (labelString.contains("oat") || labelString.contains("porridge") || labelString.contains("cereal")) return findById("rolled_oats")
+        if (labelString.contains("coffee") || labelString.contains("espresso")) return findById("black_coffee")
+        if (labelString.contains("tea") || labelString.contains("chai")) return findById("milk_tea_chai")
+        if (labelString.contains("milk") || labelString.contains("dairy")) return findById("milk_whole")
+        if (labelString.contains("yogurt") || labelString.contains("curd")) return findById("greek_yogurt_plain")
+
+        // 2. Fuzzy search matching any label word
+        for (label in labels) {
+            val match = foods.firstOrNull { it.name.lowercase().contains(label.lowercase()) || it.category.lowercase().contains(label.lowercase()) }
+            if (match != null) return match
+        }
+
+        return null
     }
 }
-

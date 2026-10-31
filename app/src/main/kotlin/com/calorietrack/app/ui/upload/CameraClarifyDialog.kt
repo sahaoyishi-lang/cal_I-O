@@ -9,19 +9,27 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,8 +51,12 @@ import com.calorietrack.app.model.LoggedMealEntry
 import com.calorietrack.app.model.MealSlot
 import com.calorietrack.app.model.PortionUnit
 import com.calorietrack.app.nutrition.FoodDatabase
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.label.ImageLabeling
+import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import java.io.File
 import java.util.UUID
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,9 +71,57 @@ fun CameraClarifyDialog(
     var currentPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFood by remember { mutableStateOf(initialFood ?: FoodDatabase.findById("rice_cooked_white")!!) }
     var selectedUnit by remember { mutableStateOf(selectedFood.defaultServingUnit) }
-    var quantity by remember { mutableFloatStateOf(1.0f) }
+    var quantity by remember { mutableFloatStateOf(selectedFood.defaultServingQuantity) }
     var selectedMealSlot by remember { mutableStateOf(MealSlot.LUNCH) }
+    
+    // AI detection states
     var isAnalyzing by remember { mutableStateOf(false) }
+    var detectedLabels by remember { mutableStateOf<List<String>>(emptyList()) }
+    var detectionConfidence by remember { mutableFloatStateOf(0f) }
+    var detectionMessage by remember { mutableStateOf<String?>(null) }
+
+    // Food Search picker dialog state
+    var showFoodSearchDialog by remember { mutableStateOf(false) }
+
+    fun runFoodRecognition(bitmap: Bitmap) {
+        isAnalyzing = true
+        detectionMessage = "AI analyzing food..."
+        try {
+            val inputImage = InputImage.fromBitmap(bitmap, 0)
+            val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
+
+            labeler.process(inputImage)
+                .addOnSuccessListener { labels ->
+                    isAnalyzing = false
+                    val labelTexts = labels.map { it.text }
+                    detectedLabels = labelTexts
+
+                    val bestMatch = FoodDatabase.findBestMatchForLabels(labelTexts)
+                    if (bestMatch != null) {
+                        selectedFood = bestMatch
+                        selectedUnit = bestMatch.defaultServingUnit
+                        quantity = bestMatch.defaultServingQuantity
+                        val topConfidence = labels.firstOrNull()?.confidence ?: 0.85f
+                        detectionConfidence = topConfidence
+                        detectionMessage = "Identified: ${bestMatch.name} (${(topConfidence * 100).toInt()}% confidence)"
+                    } else {
+                        val firstLabel = labelTexts.firstOrNull()
+                        detectionMessage = if (firstLabel != null) {
+                            "Detected '$firstLabel'. Please confirm or pick the exact food below."
+                        } else {
+                            "Food not clearly recognized. Please select or search your meal below."
+                        }
+                    }
+                }
+                .addOnFailureListener { e ->
+                    isAnalyzing = false
+                    detectionMessage = "Recognition error: ${e.message}"
+                }
+        } catch (e: Exception) {
+            isAnalyzing = false
+            detectionMessage = "Could not analyze image: ${e.message}"
+        }
+    }
 
     // Helper to create photo URI
     fun createTempPictureUri(ctx: Context): Uri {
@@ -83,10 +143,7 @@ fun CameraClarifyDialog(
                 val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
                 if (bitmap != null) {
                     capturedBitmap = bitmap
-                    // Default to Cooked Rice / detects food from camera
-                    selectedFood = FoodDatabase.findById("rice_cooked_white")!!
-                    selectedUnit = selectedFood.defaultServingUnit
-                    quantity = selectedFood.defaultServingQuantity
+                    runFoodRecognition(bitmap)
                 }
             } catch (e: Exception) {
                 Toast.makeText(context, "Could not load captured photo: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -100,9 +157,7 @@ fun CameraClarifyDialog(
     ) { bitmap ->
         if (bitmap != null) {
             capturedBitmap = bitmap
-            selectedFood = FoodDatabase.findById("rice_cooked_white")!!
-            selectedUnit = selectedFood.defaultServingUnit
-            quantity = selectedFood.defaultServingQuantity
+            runFoodRecognition(bitmap)
         }
     }
 
@@ -113,7 +168,6 @@ fun CameraClarifyDialog(
             currentPhotoUri = uri
             takePictureLauncher.launch(uri)
         } catch (e: Exception) {
-            // Fallback to preview contract if FileProvider has an issue
             takePreviewLauncher.launch(null)
         }
     }
@@ -125,11 +179,7 @@ fun CameraClarifyDialog(
         if (isGranted) {
             launchCamera()
         } else {
-            Toast.makeText(
-                context,
-                "Camera permission is required to snap food photos. Please allow it.",
-                Toast.LENGTH_LONG
-            ).show()
+            Toast.makeText(context, "Camera permission is required to snap food photos.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -152,10 +202,10 @@ fun CameraClarifyDialog(
                 val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
                 if (bitmap != null) {
                     capturedBitmap = bitmap
-                    selectedFood = FoodDatabase.findById("rice_cooked_white")!!
+                    runFoodRecognition(bitmap)
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Could not load image", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Could not load image: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -166,7 +216,7 @@ fun CameraClarifyDialog(
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier
                 .fillMaxWidth()
@@ -186,18 +236,23 @@ fun CameraClarifyDialog(
                 ) {
                     Column {
                         Text(
-                            "Food Camera & Measurement",
+                            "Smart Food Camera",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            "Snap food & clarify exact portion",
+                            "Snap pic & clarify exact portion",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     IconButton(onClick = { requestCameraAndLaunch() }) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = "Retake photo", tint = MaterialTheme.colorScheme.primary)
+                        Icon(
+                            Icons.Default.CameraAlt,
+                            contentDescription = "Retake photo",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
 
@@ -207,8 +262,8 @@ fun CameraClarifyDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(160.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .height(170.dp)
+                        .clip(RoundedCornerShape(16.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
                 ) {
@@ -218,6 +273,25 @@ fun CameraClarifyDialog(
                             contentDescription = "Food picture",
                             modifier = Modifier.fillMaxSize()
                         )
+
+                        // Retake / Change Photo overlay button
+                        Surface(
+                            onClick = { requestCameraAndLaunch() },
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Retake", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     } else {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -227,7 +301,7 @@ fun CameraClarifyDialog(
                             Icon(
                                 Icons.Default.CameraAlt,
                                 contentDescription = null,
-                                modifier = Modifier.size(44.dp),
+                                modifier = Modifier.size(42.dp),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.height(8.dp))
@@ -236,11 +310,11 @@ fun CameraClarifyDialog(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(
                                     onClick = { requestCameraAndLaunch() },
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                                 ) {
                                     Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -249,7 +323,7 @@ fun CameraClarifyDialog(
                                 }
                                 OutlinedButton(
                                     onClick = { galleryLauncher.launch("image/*") },
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                                 ) {
                                     Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -259,176 +333,201 @@ fun CameraClarifyDialog(
                             }
                         }
                     }
+
+                    // Analyzing overlay
+                    if (isAnalyzing) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("AI identifying food...", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+
+                // AI Detection Message Banner
+                if (detectionMessage != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = detectionMessage ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Detected Food Item Selector (e.g. Rice, Chicken, Dal, Roti)
+                // Active Food Header & "Change / Search" button
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        "Food: ${selectedFood.name}",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        "${selectedFood.caloriesPer100g.toInt()} kcal/100g",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                // Quick Switch between common detected items
-                Text(
-                    "Switch detected item:",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier
-                        .align(Alignment.Start)
-                        .padding(top = 4.dp)
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    val quickFoods = listOf(
-                        FoodDatabase.findById("rice_cooked_white")!!,
-                        FoodDatabase.findById("chicken_breast_grilled")!!,
-                        FoodDatabase.findById("dal_lentils_yellow")!!,
-                        FoodDatabase.findById("roti_chapati")!!
-                    )
-                    quickFoods.forEach { food ->
-                        val isSelected = selectedFood.id == food.id
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                selectedFood = food
-                                selectedUnit = food.defaultServingUnit
-                                quantity = food.defaultServingQuantity
-                            },
-                            label = { Text(food.name.split(" ").first(), style = MaterialTheme.typography.labelSmall) },
-                            modifier = Modifier.weight(1f)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = selectedFood.name,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
                         )
+                        Text(
+                            text = "${selectedFood.category} • ${selectedFood.caloriesPer100g.toInt()} kcal/100g",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = { showFoodSearchDialog = true },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Search/Change", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
+                // =========================================================
                 // MEASUREMENT / PORTION CLARIFICATION SECTION
+                // =========================================================
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(16.dp)
+                        )
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                "Clarify Food Amount (e.g. Rice Taken)",
+                                "Clarify Exact Amount Taken",
                                 fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.bodyMedium
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                        // Serving Unit Selection (e.g. Bowls, Cups, Grams, Slices)
-                        Text("Select Serving Unit:", style = MaterialTheme.typography.labelMedium)
+                        // Serving Unit Selection
+                        Text("Portion Measurement Unit:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            val availableUnits = listOf(PortionUnit.BOWLS, PortionUnit.CUPS, PortionUnit.GRAMS, PortionUnit.SLICES)
+                            val availableUnits = listOf(PortionUnit.BOWLS, PortionUnit.GRAMS, PortionUnit.CUPS, PortionUnit.PIECES, PortionUnit.SLICES)
                             availableUnits.forEach { unit ->
                                 val isSelected = selectedUnit == unit
                                 FilterChip(
                                     selected = isSelected,
                                     onClick = {
                                         selectedUnit = unit
-                                        if (unit == PortionUnit.GRAMS && quantity < 50) quantity = 150f
-                                        else if (unit != PortionUnit.GRAMS && quantity > 10) quantity = 1f
+                                        if (unit == PortionUnit.GRAMS) {
+                                            quantity = 150f
+                                        } else if (quantity > 10f) {
+                                            quantity = 1.0f
+                                        }
                                     },
-                                    label = { Text(unit.displayName.split(" ").first(), style = MaterialTheme.typography.labelSmall) },
+                                    label = { Text(unit.displayName, fontSize = 11.sp) },
                                     modifier = Modifier.weight(1f)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                        // Amount / Quantity Stepper & Slider
+                        // Interactive Quantity Stepper & Clarifier
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                "Amount: ${if (selectedUnit == PortionUnit.GRAMS) "${quantity.toInt()} g" else String.format("%.1f", quantity)} ${selectedUnit.displayName.split(" ").first()}",
-                                fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
+                            Column {
+                                Text("Quantity Taken", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    text = if (selectedUnit == PortionUnit.GRAMS) "${quantity.roundToInt()} grams" else "$quantity ${selectedUnit.displayName}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 FilledTonalIconButton(
                                     onClick = {
-                                        if (selectedUnit == PortionUnit.GRAMS) {
-                                            quantity = (quantity - 25f).coerceAtLeast(25f)
-                                        } else {
-                                            quantity = (quantity - 0.5f).coerceAtLeast(0.5f)
-                                        }
-                                    },
-                                    modifier = Modifier.size(32.dp)
+                                        val step = if (selectedUnit == PortionUnit.GRAMS) 25f else 0.5f
+                                        quantity = (quantity - step).coerceAtLeast(step)
+                                    }
                                 ) {
-                                    Icon(Icons.Default.Remove, contentDescription = "Decrease", modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.Remove, contentDescription = "Decrease")
                                 }
 
-                                Text(
-                                    text = if (selectedUnit == PortionUnit.GRAMS) "${quantity.toInt()}" else String.format("%.1f", quantity),
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 12.dp)
-                                )
-
                                 FilledTonalIconButton(
                                     onClick = {
-                                        if (selectedUnit == PortionUnit.GRAMS) {
-                                            quantity += 25f
-                                        } else {
-                                            quantity += 0.5f
-                                        }
-                                    },
-                                    modifier = Modifier.size(32.dp)
+                                        val step = if (selectedUnit == PortionUnit.GRAMS) 25f else 0.5f
+                                        quantity += step
+                                    }
                                 ) {
-                                    Icon(Icons.Default.Add, contentDescription = "Increase", modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.Add, contentDescription = "Increase")
                                 }
                             }
                         }
 
-                        // Preset portion chips (e.g. 0.5 Bowl, 1 Bowl (150g), 1.5 Bowls (225g), 2 Bowls (300g))
-                        if (selectedUnit != PortionUnit.GRAMS) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                listOf(0.5f, 1.0f, 1.5f, 2.0f).forEach { q ->
-                                    val isSelected = quantity == q
-                                    SuggestionChip(
-                                        onClick = { quantity = q },
-                                        label = { Text("${q}x (~${(q * selectedUnit.gramsEquivalent).toInt()}g)") },
-                                        colors = SuggestionChipDefaults.suggestionChipColors(
-                                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                                        ),
-                                        modifier = Modifier.weight(1f)
-                                    )
+                        // Quick portion preset chips (e.g. for Rice: 0.5 Bowl, 1 Bowl, 1.5 Bowls, 2 Bowls)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val presets = if (selectedUnit == PortionUnit.GRAMS) {
+                                listOf(100f to "100g", 150f to "150g", 200f to "200g", 250f to "250g")
+                            } else {
+                                listOf(0.5f to "½", 1.0f to "1", 1.5f to "1½", 2.0f to "2")
+                            }
+                            presets.forEach { (presetVal, presetLabel) ->
+                                OutlinedButton(
+                                    onClick = { quantity = presetVal },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(presetLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -437,95 +536,227 @@ fun CameraClarifyDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Calculated Nutrition Preview Card
+                // Calculated Nutrition Facts Summary Box
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceAround
-                    ) {
-                        NutriStatItem("Calories", "${currentNutrition.calories} kcal")
-                        NutriStatItem("Protein", "${currentNutrition.proteinGrams}g")
-                        NutriStatItem("Carbs", "${currentNutrition.carbsGrams}g")
-                        NutriStatItem("Fat", "${currentNutrition.fatGrams}g")
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Total Intake Nutrition",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                "${currentNutrition.calories} kcal",
+                                fontWeight = FontWeight.ExtraBold,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceAround
+                        ) {
+                            NutrientBadge("Protein", "${currentNutrition.proteinGrams}g")
+                            NutrientBadge("Carbs", "${currentNutrition.carbsGrams}g")
+                            NutrientBadge("Fats", "${currentNutrition.fatGrams}g")
+                            NutrientBadge("Weight", "${currentNutrition.weightGrams}g")
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Meal Slot Selector (Breakfast, Lunch, Dinner, Snack)
-                Text("Log to Meal:", style = MaterialTheme.typography.labelMedium)
+                // Meal Slot Selector (Breakfast, Lunch, Snacks, Dinner)
+                Text("Select Meal Time:", style = MaterialTheme.typography.labelSmall, modifier = Modifier.align(Alignment.Start))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     MealSlot.values().forEach { slot ->
                         val isSelected = selectedMealSlot == slot
                         FilterChip(
                             selected = isSelected,
                             onClick = { selectedMealSlot = slot },
-                            label = { Text(slot.displayName, style = MaterialTheme.typography.labelSmall) },
+                            label = { Text(slot.displayName, fontSize = 11.sp) },
                             modifier = Modifier.weight(1f)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
-                // Action Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                // Log Meal Button
+                Button(
+                    onClick = {
+                        val entry = LoggedMealEntry(
+                            id = UUID.randomUUID().toString(),
+                            foodName = selectedFood.name,
+                            mealSlot = selectedMealSlot,
+                            quantity = quantity,
+                            unit = selectedUnit,
+                            calories = currentNutrition.calories,
+                            proteinGrams = currentNutrition.proteinGrams,
+                            carbsGrams = currentNutrition.carbsGrams,
+                            fatGrams = currentNutrition.fatGrams,
+                            source = LogSource.CAMERA_AI
+                        )
+                        onConfirmLog(entry)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("Cancel")
-                    }
-
-                    Button(
-                        onClick = {
-                            val entry = LoggedMealEntry(
-                                id = UUID.randomUUID().toString(),
-                                foodName = selectedFood.name,
-                                mealSlot = selectedMealSlot,
-                                quantity = quantity,
-                                unit = selectedUnit,
-                                calories = currentNutrition.calories,
-                                proteinGrams = currentNutrition.proteinGrams,
-                                carbsGrams = currentNutrition.carbsGrams,
-                                fatGrams = currentNutrition.fatGrams,
-                                source = LogSource.CAMERA_AI,
-                                notes = "Portion confirmed via Camera AI"
-                            )
-                            onConfirmLog(entry)
-                        },
-                        modifier = Modifier.weight(1.5f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Log Intake", fontWeight = FontWeight.Bold)
-                    }
+                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Confirm & Log ${currentNutrition.calories} kcal",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
                 }
             }
         }
     }
+
+    // Food Search & Selection Dialog
+    if (showFoodSearchDialog) {
+        FoodSearchAndSelectionDialog(
+            onDismiss = { showFoodSearchDialog = false },
+            onFoodSelected = { food ->
+                selectedFood = food
+                selectedUnit = food.defaultServingUnit
+                quantity = food.defaultServingQuantity
+                showFoodSearchDialog = false
+            }
+        )
+    }
 }
 
 @Composable
-private fun NutriStatItem(label: String, value: String) {
+private fun NutrientBadge(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+    }
+}
+
+/**
+ * Real-time Food Search Dialog allowing user to pick any food
+ */
+@Composable
+private fun FoodSearchAndSelectionDialog(
+    onDismiss: () -> Unit,
+    onFoodSelected: (FoodItem) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    val searchResults = remember(searchQuery) {
+        FoodDatabase.search(searchQuery)
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.82f)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Select / Search Food", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search e.g. Rice, Apple, Chicken...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    "${searchResults.size} foods available:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(searchResults) { food ->
+                        Card(
+                            onClick = { onFoodSelected(food) },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(food.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        "${food.category} • ${food.caloriesPer100g.toInt()} kcal/100g",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        "${food.caloriesPer100g.toInt()} kcal",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

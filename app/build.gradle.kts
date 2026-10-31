@@ -86,4 +86,5 @@ dependencies {
   // Barcode Scanner & Vision
   implementation(libs.play.services.code.scanner)
   implementation(libs.mlkit.barcode.scanning)
+  implementation(libs.mlkit.image.labeling)
 }
